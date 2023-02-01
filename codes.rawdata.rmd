@@ -1,0 +1,285 @@
+---
+title: "Codes for raw data"
+author: "Yunyi Sun"
+date: "2022-11-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### library
+```{r}
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+library(summarytools)
+library(car)
+library(stevemisc)
+library(plyr)
+### https://statisticsglobe.com/r-error-must-only-be-used-inside-dplyr-verbs 
+## why R Error: `n()` must only be used inside dplyr verbs. (2 Examples)
+# https://dplyr.tidyverse.org/reference/summarise.html
+```
+
+
+#### Data Import: Raw Data
+```{r}
+
+Combined_all3WAVES <- read.csv("../Combined__all3WAVES.csv",header=TRUE)
+colnames(Combined_all3WAVES)
+
+head(Combined_all3WAVES)
+
+Combined_all3WAVES_text <- read.csv("../Combined_all3WAVES_text.csv",header=TRUE)
+
+setdiff(colnames(Combined_all3WAVES_text),colnames(Combined_all3WAVES))
+
+match(colnames(Combined_all3WAVES),colnames(Combined_all3WAVES_text))
+
+names(Combined_all3WAVES)[colnames(Combined_all3WAVES) %nin% colnames(Combined_all3WAVES_text)]
+
+```
+
+#### Creating new Data File
+
+
+#### Create subset of original datafile
+```{r}
+df1 <- Combined_all3WAVES %>% select(starts_with("Mental_Health_5_item_"),starts_with("Imposter_"),starts_with("Minority_Stress_"),Discipline,Race_ethnicity_ID,Gender,Sexual_orientation,U_others_sex_harass,Offended_sex_remarks,names(Combined_all3WAVES)[grepl("Institution", names(Combined_all3WAVES),fixed=TRUE)]) 
+attach(df1)
+head(df1)
+
+
+temp1 <- names(Combined_all3WAVES)[grepl("Institution", names(Combined_all3WAVES),fixed=TRUE)]
+temp2 <- names(Combined_all3WAVES_text)[grepl("Institution", names(Combined_all3WAVES_text),fixed=TRUE)]
+for (i in temp1){
+ print( unique(Combined_all3WAVES[i]))
+  print(table(Combined_all3WAVES[i]))
+  print(summary(Combined_all3WAVES[i]))
+}
+
+
+for (i in temp2){
+ print( unique(Combined_all3WAVES_text[i]))
+  print(table(Combined_all3WAVES_text[i]))
+  print(summary(Combined_all3WAVES_text[i]))
+}
+
+Combined_all3WAVES_text %>% group_by(Institution_1) %>% dplyr::summarise(n=n())
+Combined_all3WAVES_text %>% group_by(Institution_2) %>% dplyr::summarise(n=n())
+sum(Combined_all3WAVES_text["Institution_2"][[1]]=="")
+sum(is.na(Combined_all3WAVES_text["Institution_2"][[1]]))
+Combined_all3WAVES_text[Combined_all3WAVES_text["Institution_2"]=="","Institution_2"] <- NA
+
+# Combined_csv: in the column of "Institution_2", which indicates the specific institution of the respondents, in total we have respondents from 125 different institutions according to the answers to this question.   
+
+# Subset data file: we have total 98 different institutions
+df_Sexual %>% group_by(Institution_2) %>% dplyr::summarise(n=n()) 
+df_Sexual %>% group_by(Institution_1) %>% dplyr::summarise(n=n())
+
+table(df_Sexual$Institution_2)
+
+```
+
+#### Check the str of df1
+```{r}
+str(df1)
+colnames(df1)
+
+```
+
+#### Recode the demographical variables 
+```{r}
+
+df1 <- df1 %>% 
+  mutate(Discipline=recode(as.character(Discipline),
+                      "c('1','2')='1';c('3','4','5')='2'"),Gender=recode(as.character(Gender),"c('3','4','5','6','7')='3'")) %>%
+  mutate(across(c(Discipline,Gender,Sexual_orientation,
+                  U_others_sex_harass,Offended_sex_remarks),~as.character(.))) %>%
+  mutate_if(is.integer,as.numeric) 
+
+#### check unique categories of recoded columns
+unique(df1$Discipline)
+unique(df1$Gender)
+unique(df1$U_others_sex_harass)
+unique(df1$Offended_sex_remarks)
+```
+
+#### Recode the Race since its subgroups are more complicated
+
+```{r}
+### Define a function to modify race column
+Race_modify <-  function(x) x$Race_ethnicity_ID[i] <- ifelse("1" %in% str_split(x$Race_ethnicity_ID[i], ",", simplify = TRUE), "1",ifelse(x$Race_ethnicity_ID[i]!= "","2",NA)
+ )
+
+  for (i in 1:nrow(df1)) {
+ df1$Race_ethnicity_ID[i]  <- Race_modify(df1)
+  } 
+
+
+#### check unique categories of recoded columns
+unique(df1$Race_ethnicity_ID)
+```
+
+#### Recode the Mental health item 3 to 5 since they are coded reversely
+```{r}
+
+df1 <- df1 %>% mutate(across(paste("Mental_Health_5_item_",c(3,4,5),sep="")
+                          ,~recode(as.character(.),"'1'='6';'2'='5';'3'='4';'4'='3';
+                                      '5'='2';'6'='1'")))
+
+#### check unique categories of recoded columns
+head(unique(df1[paste("Mental_Health_5_item_",c(3,4,5),sep="")]))
+
+```
+
+#### Mutate all categorical variables to factor
+```{r}
+df1 <- df1 %>% mutate_if(is.character,as.factor) 
+
+```
+
+
+#### Label all categorical variables to factor
+
+```{r}
+# NOTE: BOTH dplyr and plyr has function rename, if you only call rename, R would automatically believe you are refering to the one from plyr, plyr::rename(d, c("old1"="new1", "old2"="new2")), which needed to be write like this
+# df1 %>% plyr::rename(c(Discipline="Discipline_num",Gender="Gender_num",
+#          Sexual_orientation="Sexual_orientation_num")) %>% colnames()
+
+df1 <- df1 %>% dplyr::rename(Discipline_num=Discipline,Gender_num=Gender,
+         Sexual_orientation_num=Sexual_orientation) %>% 
+  mutate(
+  Discipline=plyr::mapvalues(Discipline_num,c("1","2"),c("Stem","Non-Stem")),
+  Gender=plyr::mapvalues(Gender_num,c("1","2","3"),c("Woman", "Man","Others")),
+  Sexual_orientation=plyr::mapvalues(Sexual_orientation_num,c("1","2","3","4","5"),c("Hetero","Homo","Bi","NL","PNA")),
+  Race=plyr::mapvalues(Race_ethnicity_ID,c("1","2"),c("Black","Non-Black")),
+  Sex_harass=plyr::mapvalues(U_others_sex_harass,c("1","2","3"),c("Yes","No","Not_Sure")),
+  Sex_remarks=plyr::mapvalues(Offended_sex_remarks,c("1","2","3"),c("Yes", "No","Not_Sure"))) %>% dplyr::rename(Race_num=Race_ethnicity_ID,Sex_harass_num=U_others_sex_harass,Sex_remarks_num=Offended_sex_remarks)
+
+
+```
+
+
+#### ADD per NA col to each Continuous variable
+```{r}
+idx_1<-sum(grepl("Mental_Health_5_item_", names(df1),fixed=TRUE))
+idx_2<-sum(grepl("Imposter_", names(df1),fixed=TRUE))
+idx_3<-sum(grepl("Minority_Stress_", names(df1),fixed=TRUE))
+
+df1 <- df1 %>% mutate(perNA=rowSums(is.na(df1)),perNA_1 = rowSums(is.na(df1[grepl("Mental_Health_5_item_", names(df1),fixed=TRUE)])),perNA_2 = rowSums(is.na(df1[grepl("Imposter_", names(df1),fixed=TRUE)])),perNA_3 = rowSums(is.na(df1[grepl("Minority_Stress_", names(df1),fixed=TRUE)]))) %>% 
+  relocate(perNA_1,.after=paste("Mental_Health_5_item_",idx_1,sep="")) %>% 
+  relocate(perNA_2,.after=paste("Imposter_",idx_2,sep="")) %>% 
+  relocate(perNA_3,.after=paste("Minority_Stress_",idx_3,sep=""))
+
+attach(df1)
+
+for (i in 1:3){
+  print(table(eval(parse(text=paste('perNA_',i,sep="")))))
+}
+# or write get(paste('perNA_',i,sep=""))
+
+
+```
+
+
+
+#### Calculate the sum score for continuous varaible NOTE:na.rm = FALSE
+```{r}
+
+df1 <- df1 %>% transmute(!!!rlang::syms(setdiff(names(.), names(.)[c(which(grepl("Mental_Health_5_item_", names(df1),fixed=TRUE)),which(grepl("Imposter_",names(df1),fixed=TRUE)),which(grepl("Minority_Stress_",names(df1),fixed=TRUE)))])),Mental_Health_Score=select(.,starts_with("Mental_Health_5_item_")) %>% rowSums(),Imposter_Score=select(.,starts_with("Imposter_"))%>% rowSums(), Minority_Stress_Score=select(.,starts_with("Minority_Stress_")) %>% rowSums()) %>% 
+  relocate(perNA_1,.after=paste("Mental_Health_","Score",sep="")) %>% 
+  relocate(perNA_2,.after=paste("Imposter_","Score",sep="")) %>% 
+  relocate(perNA_3,.after=paste("Minority_Stress_","Score",sep=""))
+
+
+```
+
+
+##### Creating a new categorical variable: Group based on conditions
+
+```{r}
+
+
+df1 <- df1 %>% mutate(Group = 
+                 case_when(Sex_harass == "Yes" & Sex_remarks == "Yes" ~ "Both",
+                           Sex_harass == "No" & Sex_remarks == "No" ~ "Neither",
+                      xor (Sex_harass == "Yes", Sex_remarks =="Yes") ~ "Either" ,
+                             TRUE ~ "Missing"))
+
+df1$Group[df1$Group=="Missing"] <- NA
+# df1$Group <- factor(df1$Group)
+attach(df1)
+# create a new perNA column
+df_Sexual <- df1 %>% mutate(per_NA_Group = as.integer(is.na(df1["Group"]))) %>%
+          filter(if_all(c(per_NA_Group,perNA_1,perNA_2,perNA_3), ~ (.x ==0)), apply(!is.na(df1[,which(names(df1) %in%                   c("Discipline","Gender","Race","Sexual_orientation","Group"))]),1,all)) %>% is.na() %>% rowSums() %>% sum()
+
+
+# check if we still have NA
+colSums(is.na(df_Sexual[,which(names(df_Sexual) %in%                   c("Discipline","Gender","Race","Sexual_orientation","Group"))]))
+
+
+
+       # filter(if_all(all_of(c(Discipline, Race, Gender,Sexual_orientation,
+       #                U_others_sex_harass,Offended_sex_remarks)), ~ !is.na(.x)))
+```
+
+
+
+
+#### Descriptive stats
+```{r}
+summary(df1)
+dfSummary(df1[, !grepl("_num",colnames(df1))]) ##don't repeatedly calculate
+########
+# created a unique table for missing value col
+df1 %>% group_by(perNA) %>% summarise(n=n())
+# # make unique missing values as factor
+# df1$perNA <- as.factor(df1$perNA)
+# create a missing value dataset
+dfmissing <- df1 %>% filter( perNA  > 0, apply(!is.na(df1[,which(names(df1) %in% c("Discipline","Gender","Race","Sexual_orientation","Group"))]),1,all)) 
+head(dfmissing)
+
+
+# create a cross-table to see the distribution of missing values across subcategories of one discrete variable
+
+ctable(
+  x = dfmissing$Discipline_num,
+  y = dfmissing$perNA,
+prop = "r")
+ctable(
+  x = dfmissing$Gender_num,
+  y = dfmissing$perNA,
+prop = "r")
+ctable(
+  x = dfmissing$Race_num,
+  y = dfmissing$perNA,
+prop = "r")
+ctable(
+  x = dfmissing$Sexual_orientation,
+  y = dfmissing$perNA,
+prop = "r")
+
+
+```
+
+#### Complement: You can write in a loop but not recommended
+```{r}
+temp <- names(Filter(is.factor,dfmissing))
+for (i in 1:length(temp)){
+  co_na <-temp[i]
+  x1<-dfmissing[co_na][[1]]
+  y1<-dfmissing["perNA"][[1]]
+  t <-ctable(
+  x = x1,
+  y = y1,
+prop = "r")
+  print(t)
+}
+### you can try to write it within a loop but then you won't have name foace each table  
+
+```
